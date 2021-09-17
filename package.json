@@ -1,12 +1,12 @@
 {
   "name": "uztest-parse",
   "version": "1.0.0",
-  "description": "",
+  "description": "parse uztest trainings",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
+  "author": "andrik154",
   "license": "ISC",
   "dependencies": {
     "dotenv": "^10.0.0",

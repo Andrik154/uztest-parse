@@ -11,21 +11,38 @@ const aurl = "https://uztest.ru/student.pl";
 //main
 (async()=>{
   authorize(credentials).then(sessionkey=>{
+    console.log(`Authorized; sessionkey ${sessionkey}`);
     getTaskList(sessionkey).then(taskList=>{
+      console.log(`Got tasklist; ${taskList.length} items`);
       const dirname = `./output/${Math.floor(Date.now()/1000)}`;
       //fs.mkdirSync("./output/").catch(e=>console.log(e));
       fs.mkdirSync(dirname);
-      taskList.forEach((item, i) => {
-        parseTaskRequest(item,sessionkey).then(a=>{
-          fs.writeFileSync(`${dirname}/${item.id}.json`,JSON.stringify({data:a}));
-          console.log('Finished '+item.name)
-        }).catch(err=>console.log(`Error parsing/writing tasks: ${err}`));
-      });
-    })
+      parseTaskList(taskList, sessionkey, credentials, dirname).then(()=>{
+        console.log(`Job done. Exiting...`);
+        process.exit();
+      }).catch(err=>console.log(`Error parsing tasklist: ${err}`));
+    });
   }).catch(err=>console.log(err));
 })()
 
-async function parseTaskRequest(task, sessionkey){
+async function parseTaskList(taskList, sessionkey, credentials, dirname){
+  var promiseArr = []
+  for(let item of taskList){
+    promiseArr.push(new Promise((resolve,reject)=>{
+      parseTaskRequest(item,sessionkey,credentials).then(a=>{
+        fs.writeFileSync(`${dirname}/${item.id}.json`,JSON.stringify({name: item.name, id: item.id, items: parseInt(item.info.items), done: a.length, data:a}));
+        console.log('Finished '+item.name);
+        resolve();
+      }).catch(err=>{
+        console.log(`Error parsing/writing: ${err}`);
+        reject();
+      });
+    }));
+  }
+  await Promise.allSettled(promiseArr);
+}
+
+async function parseTaskRequest(task, sessionkey, credentials){
   var answers = [];
 
   const cookie = request.cookie(`sessionkey=${sessionkey}`);
@@ -38,15 +55,28 @@ async function parseTaskRequest(task, sessionkey){
   let lastAttempt = attempts[attempts.length-1];
 
   for(let i = 0; i<items; i++){
-    const send = await request.post({url:aurl, form:{sessionkey,job:task.job, id:task.id, "answers[0][id]":lastAttempt.id, "answers[0][useranswer]":"amogus1","answers[0][qtype]":lastAttempt.qtype,action:"saveAttempt"}});
-    const ans = await request.post({url:aurl, form:{sessionkey, "idattempt":lastAttempt.id,action:"getAttemptHelp"},json:true});
-    const next = await request.post({url:aurl, form:{sessionkey, job:task.job, id:task.id, action:"nextAttempt"},json:true});
-    lastAttempt=next.data.attempts[0];
-    answers.push({"qid":lastAttempt.id,"ans":ans.data.help});
+    try {
+      if(lastAttempt.qtype=="multichoice"){
+        const send = await request.post({url:aurl, form:{sessionkey,job:task.job, id:task.id, "answers[0][id]":lastAttempt.id, "answers[0][useranswer]":"5799254444553","answers[0][choice][0][idchoice]":"5799254444553","answers[0][qtype]":lastAttempt.qtype,action:"saveAttempt"}});
+      } else if (lastAttempt.qtype=="multicheck"){
+        const send = await request.post({url:aurl, form:{sessionkey,job:task.job, id:task.id, "answers[0][id]":lastAttempt.id, "answers[0][useranswer]":"2991645184003,2111629128461","answers[0][choice][0][idchoice]":"2991645184003","answers[0][choice][1][idchoice]":"2111629128461","answers[0][qtype]":lastAttempt.qtype,action:"saveAttempt"}});
+      } else {
+        const send = await request.post({url:aurl, form:{sessionkey,job:task.job, id:task.id, "answers[0][id]":lastAttempt.id, "answers[0][useranswer]":"amogus1","answers[0][qtype]":lastAttempt.qtype,action:"saveAttempt"}});
+      }
+      const ans = await request.post({url:aurl, form:{sessionkey, "idattempt":lastAttempt.id,action:"getAttemptHelp"},json:true});
+      const next = await request.post({url:aurl, form:{sessionkey, job:task.job, id:task.id, action:"nextAttempt"},json:true});
+      answers.push({"qid":lastAttempt.id,"ans":ans.data.help});
 
-    console.log(`${i+1} of ${items}`\r);
+      lastAttempt=next.data.attempts[0];
+
+      process.stdout.write('\33[2K'+`${task.name}: ${i+1} of ${items}\n`);
+    } catch (e) {
+      console.log(`Error happened during parsing; trying to get new sessionkey\nError: ${e}`);
+      sessionkey = await authorize(credentials);
+      i--;
+    }
   }
-  console.log('');
+  process.stdout.write('\n');
   return answers;
 }
 
